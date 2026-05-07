@@ -1,0 +1,70 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    editable: true
+```
+
+#### 1.2 Buat `docker-compose.observability.yml` di root project
+
+```yaml
+version: '3.8'
+
+services:
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - observability-network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml
+    networks:
+      - observability-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    ports:
+      # Bind ke Tailscale IP saja, bukan 0.0.0.0
+      # Ganti <TAILSCALE_IP> dengan IP Tailscale mini server kamu
+      - "<TAILSCALE_IP>:3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - observability-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  grafana-data:
+
+networks:
+  observability-network:
+    name: observability-network
+    driver: bridge
